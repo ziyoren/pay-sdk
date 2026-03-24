@@ -2,6 +2,8 @@
 
 A PHP SDK for integrating with Ziyoren Pay payment gateway.
 
+[English Version](README.md) | [中文版本](README_ZH.md)
+
 ## Installation
 
 You can install the package via composer:

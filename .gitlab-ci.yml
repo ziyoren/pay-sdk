@@ -1,7 +1,6 @@
 stages:
   - test
   - build
-  - mirror
 
 variables:
   COMPOSER_CACHE_DIR: "$CI_PROJECT_DIR/.cache/composer"
@@ -15,9 +14,7 @@ cache:
       - composer.lock
 
 before_script:
-  - apt-get update -yqq
-  - apt-get install -yqq git libzip-dev zip unzip openssh-client
-  - docker-php-ext-install zip
+  - apk add --no-cache curl
   - curl -sS https://getcomposer.org/installer | php
   - php composer.phar install --no-interaction --no-progress --prefer-dist
 
@@ -46,76 +43,3 @@ build_package:
     paths:
       - dist/
     expire_in: 1 week
-
-mirror_to_github:
-  stage: mirror
-  image: alpine:latest
-  variables:
-    GIT_STRATEGY: clone
-  script:
-    # 完整的镜像流程，使用HTTPS + Token
-    - |
-      if [ -n "$GITHUB_TOKEN" ]; then
-        echo "Starting GitHub mirror process..."
-
-        # 克隆远程GitHub仓库
-        git clone "https://${GITHUB_TOKEN}@github.com/ziyoren/pay-sdk.git" github-repo
-        cd github-repo
-
-        # 同步所有分支和标签
-        git fetch origin
-        git checkout master || git checkout main
-        git merge origin/master --allow-unrelated-histories || true
-
-        # 返回原始仓库，复制内容
-        cd ..
-        rm -rf github-repo/*
-        cp -r .[^.]* github-repo/  # 复制所有文件，包括隐藏文件
-        cd github-repo
-
-        # 添加所有文件并提交
-        git add .
-        git config user.name "GitLab CI Mirror Bot"
-        git config user.email "ci-mirror@ziyoren.com"
-
-        # 检查是否有变化，如果有则提交
-        if ! git diff --cached --quiet; then
-          git commit -m "Mirror from GitLab: ${CI_COMMIT_SHA}"
-          git push origin main
-
-          # 同步标签
-          git push --tags origin
-
-          # 如果是标签触发，则创建GitHub Release
-          if [ -n "$CI_COMMIT_TAG" ]; then
-            echo "Creating GitHub release for tag $CI_COMMIT_TAG..."
-
-            # 使用curl创建release
-            RELEASE_JSON=$(cat <<EOF
-{
-  "tag_name": "$CI_COMMIT_TAG",
-  "target_commitish": "main",
-  "name": "$CI_COMMIT_TAG",
-  "body": "Automated release from GitLab CI",
-  "draft": false,
-  "prerelease": false
-}
-EOF
-)
-
-            curl -X POST \
-              -H "Authorization: Bearer $GITHUB_TOKEN" \
-              -H "Accept: application/vnd.github.v3+json" \
-              https://api.github.com/repos/ziyoren/pay-sdk/releases \
-              -d "$RELEASE_JSON"
-          fi
-        else
-          echo "No changes to commit, skipping push"
-        fi
-      else
-        echo "GITHUB_TOKEN not set, skipping GitHub mirroring"
-      fi
-  only:
-    - master
-    - tags
-  when: on_success
